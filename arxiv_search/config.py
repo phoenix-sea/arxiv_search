@@ -44,7 +44,6 @@ class Settings:
     lookback_days: int
     web_host: str
     web_port: int
-    affiliations: bool = True  # parse author affiliations for new papers
 
     @property
     def profile(self) -> str:
@@ -81,5 +80,4 @@ def load_settings(env_file: str | os.PathLike | None = None) -> Settings:
         lookback_days=_int("LOOKBACK_DAYS", 3),
         web_host=_str("WEB_HOST", "0.0.0.0"),
         web_port=_int("WEB_PORT", 8000),
-        affiliations=_str("AFFILIATIONS", "1").lower() not in ("0", "false", "no", "off"),
     )

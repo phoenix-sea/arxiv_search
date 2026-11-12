@@ -14,11 +14,6 @@ def _date(s: str) -> dt.date:
     return dt.date.fromisoformat(s)
 
 
-def _arxiv_lock(s) -> str:
-    """Shared arXiv rate-limit file: the daily update and a backfill may run at the same time."""
-    return str(s.db_path.parent / ".arxiv-ratelimit")
-
-
 def cmd_init(s, a):
     con = db.connect(s.db_path)
     db.init_db(con)
@@ -41,10 +36,10 @@ def cmd_update(s, a):
     con = db.connect(s.db_path)
     db.init_db(con)
     stats = run_update(
-        s, con, fetcher=ArxivClient(lock_path=_arxiv_lock(s)).fetch_submitted,
+        s, con, fetcher=ArxivClient().fetch_submitted,
         analyzer=None if a.no_analyze else make_analyzer(s),
         notifier=None if a.no_notify else make_notifier(s),
-        affiliations=None if (a.no_affiliations or not s.affiliations) else HeaderFetcher(lock_path=_arxiv_lock(s)),
+        affiliations=HeaderFetcher(),
         since=a.since, until=a.until)
     print(stats)
 
@@ -84,31 +79,21 @@ def cmd_analyze(s, a):
 
 def cmd_affiliations(s, a):
     from . import affiliations as af
-    from .orgparse import PARSER_VERSION, parse_block
     from .pipeline import extract_affiliations
     con = db.connect(s.db_path)
     db.init_db(con)
-    if a.reparse:  # re-run the rules on stored author blocks, no downloads
-        rows = db.stored_headers(con)
-        for r in rows:
-            orgs = parse_block(r["header"], r["authors"].split("; ") if r["authors"] else [])
-            db.save_affiliations(con, r["paper_id"], orgs, source=r["source"], header=r["header"],
-                                 parser=PARSER_VERSION, commit=False)
-        con.commit()
-        print(f"re-parsed {len(rows):,} stored author blocks with {PARSER_VERSION}")
-        return
     since = a.since.isoformat() if a.since else None
     n = db.count_pending_affiliations(con, since=since)
     if a.limit:
         n = min(n, a.limit)
     hours = n * (af.MIN_GAP + 0.5) / 3600
     print(f"{n:,} papers without affiliations{' since ' + since if since else ''} · "
-          f"about {hours:.1f} h of arXiv downloads (one request per {af.MIN_GAP:g} s) · no Gemini")
+          f"about {hours:.1f} h of arXiv downloads")
     if n == 0:
         return
     if n > 1000 and not a.yes:
         sys.exit("more than 1,000 papers: re-run with --yes to confirm")
-    fetcher = af.HeaderFetcher(lock_path=_arxiv_lock(s))
+    fetcher = af.HeaderFetcher()
     total = 0
     while total < n:
         papers = db.pending_affiliations(con, since=since, limit=min(200, n - total))
@@ -119,28 +104,6 @@ def cmd_affiliations(s, a):
         if done == 0:
             break
     print(f"processed {total:,} papers")
-
-
-def cmd_test_affiliations(s, a):
-    from .affiliations import HeaderFetcher, read_affiliations
-    con = db.connect(s.db_path)
-    db.init_db(con)
-    fetcher = HeaderFetcher(lock_path=_arxiv_lock(s))
-    for pid in a.ids:
-        row = con.execute("SELECT * FROM papers WHERE id = ?", (pid,)).fetchone()
-        authors = db.paper_from_row(row).authors if row else []
-        print(f"\n{pid}  {row['title'] if row else '(not in index)'}")
-        got = read_affiliations(fetcher, pid, authors)
-        if not got:
-            print("  no HTML or PDF author block found")
-            continue
-        source, header, orgs = got
-        print(f"  author block from {source.upper()}:\n    | " + header.replace("\n", "\n    | "))
-        for o in orgs:
-            print(f"  -> {o.name}{' / ' + o.unit if o.unit else ''} [{o.kind}]"
-                  f"{' ' + o.domain if o.domain else ''}: {'; '.join(o.authors) or '?'}")
-        if not orgs:
-            print("  -> no affiliations found")
 
 
 def cmd_serve(s, a):
@@ -192,7 +155,6 @@ def cmd_stats(s, a):
     db.init_db(con)
     one = lambda q: con.execute(q).fetchone()[0]
     print(f"papers {one('SELECT count(*) FROM papers'):,} · analysed {one('SELECT count(*) FROM analysis'):,} · "
-          f"with affiliations {one('SELECT count(DISTINCT paper_id) FROM paper_orgs'):,} · "
           f"discovered by updater {one('SELECT count(*) FROM papers WHERE added_at IS NOT NULL'):,} · "
           f"newest {one('SELECT max(created) FROM papers')}")
     for r in con.execute("SELECT * FROM runs ORDER BY run_id DESC LIMIT 5"):
@@ -213,7 +175,6 @@ def main(argv=None):
     p.add_argument("--until", type=_date)
     p.add_argument("--no-analyze", action="store_true")
     p.add_argument("--no-notify", action="store_true")
-    p.add_argument("--no-affiliations", action="store_true", help="skip author affiliation extraction")
     p.set_defaults(f=cmd_update)
     p = sub.add_parser("analyze", help="backfill Gemini analysis for already-indexed papers")
     p.add_argument("--since", type=_date, help="only papers first submitted on/after this date")
@@ -225,12 +186,8 @@ def main(argv=None):
     p = sub.add_parser("affiliations", help="backfill author affiliations for already-indexed papers")
     p.add_argument("--since", type=_date, help="only papers first submitted on/after this date")
     p.add_argument("--limit", type=int)
-    p.add_argument("--reparse", action="store_true",
-                   help="re-run the parsing rules on stored author blocks (no downloads)")
     p.add_argument("--yes", action="store_true", help="confirm runs over 1,000 papers")
     p.set_defaults(f=cmd_affiliations)
-    p = sub.add_parser("test-affiliations", help="show a paper's author block and parsed affiliations (not saved)")
-    p.add_argument("ids", nargs="+", metavar="ID"); p.set_defaults(f=cmd_test_affiliations)
     p = sub.add_parser("serve", help="run the search web UI")
     p.add_argument("--host"); p.add_argument("--port", type=int); p.set_defaults(f=cmd_serve)
     sub.add_parser("telegram-chat-id", help="show chat ids that messaged your bot").set_defaults(f=cmd_telegram_chat_id)

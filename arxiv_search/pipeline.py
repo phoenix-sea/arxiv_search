@@ -11,7 +11,6 @@ from .affiliations import FetchError, HeaderFetcher, read_affiliations
 from .config import Settings
 from .gemini import GeminiAnalyzer, GeminiError
 from .models import Paper
-from .orgparse import PARSER_VERSION
 from .telegram import Telegram, TelegramError, esc, format_digest, format_paper
 
 log = logging.getLogger(__name__)
@@ -68,10 +67,9 @@ def extract_affiliations(con: sqlite3.Connection, fetcher: HeaderFetcher, papers
                 break
             continue
         if got:
-            source, header, orgs = got
-            db.save_affiliations(con, p.id, orgs, source=source, header=header, parser=PARSER_VERSION)
+            db.save_affiliations(con, p.id, got[1], source=got[0])
         else:
-            db.save_affiliations(con, p.id, [], source=None, header=None, parser=PARSER_VERSION, status="no_source")
+            db.save_affiliations(con, p.id, [], source=None, status="no_source")
         done += 1
         if i % 100 == 0:
             log.info("affiliations: %d/%d", i, len(papers))
@@ -106,7 +104,7 @@ def run_update(settings: Settings, con: sqlite3.Connection, *, fetcher: Fetcher,
         mc = db.max_created(con)
         since = (dt.date.fromisoformat(mc) if mc else today) - dt.timedelta(days=settings.lookback_days)
     run_id = db.start_run(con, since.isoformat(), end.isoformat())
-    stats = {"fetched": 0, "new": 0, "analyzed": 0, "notified": 0, "affiliated": 0}
+    stats = {"fetched": 0, "new": 0, "analyzed": 0, "notified": 0}
     log.info("update window %s .. %s, categories %s", since, end, ",".join(settings.categories))
     try:
         papers = list(fetcher(settings.categories, since, end))
@@ -129,15 +127,14 @@ def run_update(settings: Settings, con: sqlite3.Connection, *, fetcher: Fetcher,
 
         # last, because it is slow (one arXiv request per paper) and must not delay notifications
         status, error = "ok", None
-        if affiliations:
-            pending = db.pending_affiliations(con, only_added=True)
-            if pending:
-                log.info("extracting affiliations for %d papers (~%d min)", len(pending), len(pending) * 4 // 60)
-                try:
-                    stats["affiliated"] = extract_affiliations(con, affiliations, pending)
-                except Exception as e:  # papers and notifications are done; retry the rest next run
-                    log.exception("affiliation extraction failed")
-                    status, error = "partial", f"affiliations: {type(e).__name__}: {e}"[:1000]
+        pending = db.pending_affiliations(con, only_added=True) if affiliations else []
+        if pending:
+            log.info("parsing affiliations for %d papers (~%d min)", len(pending), len(pending) * 4 // 60)
+            try:
+                extract_affiliations(con, affiliations, pending)
+            except Exception as e:  # papers and notifications are done; the rest is retried next run
+                log.exception("affiliation parsing failed")
+                status, error = "partial", f"affiliations: {type(e).__name__}: {e}"[:1000]
         db.finish_run(con, run_id, status=status, error=error, **stats)
         log.info("update done: %s", stats)
         return stats

@@ -11,14 +11,10 @@
   <div class="meta">
     <span>{{ r.created }}</span> ·
     <span class="cats">{{ r.categories }}</span> ·
-    {% set au = r.authors | authors %}
-    <span class="au">{% for a in au[:3] %}<a href="/?author={{ a | urlencode }}">{{ a }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% if au|length > 3 %} +{{ au|length - 3 }}{% endif %}</span>
+    {% set au = (r.authors or '').split('; ') %}
+    <span>{{ au[0] }}{% if au|length > 1 %} et al.{% endif %}</span>
     {% if r.added_at %}<span class="badge">new</span>{% endif %}
   </div>
-  {% set po = orgs.get(r.id, []) %}
-  {% if po %}
-  <div class="orgs">{% for o in po[:4] %}<a class="org k-{{ o.kind }}" href="/?org={{ o.name | urlencode }}" title="{{ o.unit or o.name }}{% if o.domain %} · {{ o.domain }}{% endif %}">{{ o.name }}</a>{% endfor %}{% if po|length > 4 %}<span class="muted">+{{ po|length - 4 }}</span>{% endif %}</div>
-  {% endif %}
   {% if r.tldr %}
   <p class="tldr">{{ r.tldr }}</p>
   {% endif %}

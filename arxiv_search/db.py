@@ -3,7 +3,7 @@ assessments, notification log, update-run log and token usage.
 
 Affiliations: paper_orgs holds one row per organization of a paper, orgs_fts
 indexes them for search (rowid = papers.rowid), affil_status records which
-papers were processed, the author block text and the parser version (`model`).
+papers were processed.
 
 Compatible with the arxiv_meta.db built by ~/arxiv-index (same papers table);
 init_db() migrates it in place.
@@ -38,12 +38,8 @@ CREATE TABLE IF NOT EXISTS usage(
 CREATE INDEX IF NOT EXISTS idx_papers_created ON papers(created);
 CREATE INDEX IF NOT EXISTS idx_analysis_relevance ON analysis(relevance);
 CREATE TABLE IF NOT EXISTS paper_orgs(
-  paper_id TEXT, pos INT, name TEXT, unit TEXT, kind TEXT, domain TEXT, authors TEXT,
-  PRIMARY KEY(paper_id, pos));
-CREATE INDEX IF NOT EXISTS idx_paper_orgs_name ON paper_orgs(name);
-CREATE INDEX IF NOT EXISTS idx_paper_orgs_kind ON paper_orgs(kind);
-CREATE TABLE IF NOT EXISTS affil_status(
-  paper_id TEXT PRIMARY KEY, status TEXT, source TEXT, model TEXT, extracted_at TEXT, error TEXT, header TEXT);
+  paper_id TEXT, pos INT, name TEXT, unit TEXT, domain TEXT, authors TEXT, PRIMARY KEY(paper_id, pos));
+CREATE TABLE IF NOT EXISTS affil_status(paper_id TEXT PRIMARY KEY, status TEXT, source TEXT, extracted_at TEXT);
 """
 
 FTS = """
@@ -129,10 +125,6 @@ def init_db(con: sqlite3.Connection) -> None:
     if "added_at" not in cols:  # migration for DBs built by ~/arxiv-index
         con.execute("ALTER TABLE papers ADD COLUMN added_at TEXT")
     con.execute("CREATE INDEX IF NOT EXISTS idx_papers_added ON papers(added_at)")
-    if "header" not in {r[1] for r in con.execute("PRAGMA table_info(affil_status)")}:
-        con.execute("ALTER TABLE affil_status ADD COLUMN header TEXT")
-    if "affiliated" not in {r[1] for r in con.execute("PRAGMA table_info(runs)")}:
-        con.execute("ALTER TABLE runs ADD COLUMN affiliated INT")
     had_fts = con.execute("SELECT 1 FROM sqlite_master WHERE name='papers_fts'").fetchone()
     con.executescript(FTS)
     if not had_fts and con.execute("SELECT 1 FROM papers LIMIT 1").fetchone():
@@ -247,10 +239,9 @@ def start_run(con: sqlite3.Connection, window_from: str, window_to: str) -> int:
 
 
 def finish_run(con: sqlite3.Connection, run_id: int, *, status: str, fetched: int = 0, new: int = 0,
-               analyzed: int = 0, notified: int = 0, affiliated: int = 0, error: str | None = None) -> None:
-    con.execute("UPDATE runs SET finished_at=?, status=?, fetched=?, new=?, analyzed=?, notified=?, affiliated=?, "
-                "error=? WHERE run_id=?",
-                (now_iso(), status, fetched, new, analyzed, notified, affiliated, error, run_id))
+               analyzed: int = 0, notified: int = 0, error: str | None = None) -> None:
+    con.execute("UPDATE runs SET finished_at=?, status=?, fetched=?, new=?, analyzed=?, notified=?, error=? "
+                "WHERE run_id=?", (now_iso(), status, fetched, new, analyzed, notified, error, run_id))
     con.commit()
 
 
@@ -283,36 +274,18 @@ def count_pending_affiliations(con: sqlite3.Connection, *, since: str | None = N
 
 
 def save_affiliations(con: sqlite3.Connection, pid: str, orgs: Sequence[Org], *, source: str | None,
-                      header: str | None, parser: str, status: str = "ok", commit: bool = True) -> None:
-    """Replace a paper's organizations. `header` is the author block they were parsed from,
-    kept so improved rules can be re-run without downloading again."""
+                      status: str = "ok") -> None:
+    """Replace a paper's organizations."""
     row = con.execute("SELECT rowid FROM papers WHERE id = ?", (pid,)).fetchone()
     if not row:
         return
     con.execute("DELETE FROM paper_orgs WHERE paper_id = ?", (pid,))
     con.execute("DELETE FROM orgs_fts WHERE rowid = ?", (row[0],))
-    con.executemany("INSERT INTO paper_orgs VALUES (?,?,?,?,?,?,?)",
-                    [(pid, i, o.name, o.unit, o.kind, o.domain, "; ".join(o.authors)) for i, o in enumerate(orgs)])
+    con.executemany("INSERT INTO paper_orgs(paper_id, pos, name, unit, domain, authors) VALUES (?,?,?,?,?,?)",
+                    [(pid, i, o.name, o.unit, o.domain, "; ".join(o.authors)) for i, o in enumerate(orgs)])
     if orgs:
         text = " ; ".join(" ".join(x for x in (o.name, o.unit, o.domain) if x) for o in orgs)
         con.execute("INSERT INTO orgs_fts(rowid, text) VALUES (?, ?)", (row[0], text))
-    con.execute("INSERT OR REPLACE INTO affil_status(paper_id, status, source, model, extracted_at, header) "
-                "VALUES (?,?,?,?,?,?)", (pid, status, source, parser, now_iso(), header))
-    if commit:
-        con.commit()
-
-
-def stored_headers(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    return con.execute("SELECT s.paper_id, s.source, s.header, p.authors FROM affil_status s "
-                       "JOIN papers p ON p.id = s.paper_id WHERE s.header IS NOT NULL").fetchall()
-
-
-def orgs_for(con: sqlite3.Connection, ids: Sequence[str]) -> dict[str, list[sqlite3.Row]]:
-    out: dict[str, list[sqlite3.Row]] = {}
-    for i in range(0, len(ids), 500):
-        chunk = list(ids[i:i + 500])
-        q = (f"SELECT * FROM paper_orgs WHERE paper_id IN ({','.join('?' * len(chunk))}) "
-             f"ORDER BY paper_id, pos")
-        for r in con.execute(q, chunk):
-            out.setdefault(r["paper_id"], []).append(r)
-    return out
+    con.execute("INSERT OR REPLACE INTO affil_status(paper_id, status, source, extracted_at) VALUES (?,?,?,?)",
+                (pid, status, source, now_iso()))
+    con.commit()

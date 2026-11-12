@@ -58,19 +58,6 @@ main { max-width: 920px; margin: 0 auto; padding: 1rem 16px 3rem; }
 .foot { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin-top: .4rem; font-size: .82rem; }
 .tag { background: var(--accent-soft); color: var(--accent); padding: .05rem .45rem; border-radius: 4px; }
 .links { margin-left: auto; display: flex; gap: .7rem; }
-.filters label.wide { flex: 1 1 14rem; }
-.au a { color: inherit; }
-.au a:hover { color: var(--accent); }
-.orgs { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .35rem; }
-.org { font-size: .8rem; padding: .05rem .5rem; border-radius: 999px; border: 1px solid var(--line);
-  color: var(--text); background: var(--panel); }
-.org.k-company { border-color: var(--accent); color: var(--accent); }
-.org.k-academia { border-color: var(--hi); color: var(--hi); }
-.org.k-government, .org.k-nonprofit { border-color: var(--mid); color: var(--mid); }
-.affil ul { list-style: none; padding: 0; margin: .3rem 0; }
-.affil li { margin: .45rem 0; }
-.authors a { color: inherit; }
-.authors a:hover { color: var(--accent); }
 
 .pager { display: flex; justify-content: space-between; margin: 1.2rem 0; }
 .help { margin-top: 2rem; color: var(--muted); font-size: .9rem; }

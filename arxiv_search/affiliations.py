@@ -20,7 +20,6 @@ import time
 import httpx
 
 from . import USER_AGENT
-from .ratelimit import RateLimit
 from .orgparse import parse_block
 
 log = logging.getLogger(__name__)
@@ -93,11 +92,11 @@ def header_from_pdf(data: bytes) -> str | None:
 class HeaderFetcher:
     """Fetches the author block of a paper from arXiv, one request at a time."""
 
-    def __init__(self, client: httpx.Client | None = None, min_gap: float = MIN_GAP, max_retries: int = 4,
-                 lock_path: str | None = None):
+    def __init__(self, client: httpx.Client | None = None, min_gap: float = MIN_GAP, max_retries: int = 4):
         self.http = client or httpx.Client(timeout=120, follow_redirects=True,
                                            headers={"User-Agent": USER_AGENT})
-        self.limit = RateLimit(min_gap, lock_path)  # shared with other arxiv-search processes
+        self.min_gap = min_gap
+        self._last = 0.0
         self.max_retries = max_retries
 
     def html(self, pid: str) -> str | None:
@@ -112,7 +111,10 @@ class HeaderFetcher:
 
     def _get(self, url: str, max_bytes: int, stop_at: bytes | None = None) -> tuple[int, bytes]:
         for attempt in range(1, self.max_retries + 1):
-            self.limit.wait()
+            wait = self.min_gap - (time.monotonic() - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            self._last = time.monotonic()
             try:
                 with self.http.stream("GET", url) as r:
                     if r.status_code in (429, 500, 502, 503, 504):
@@ -139,18 +141,15 @@ class HeaderFetcher:
         raise FetchError(f"arXiv unreachable for {url}")
 
 
-def read_affiliations(fetcher: HeaderFetcher, pid: str, authors: list[str]) -> tuple[str, str, list] | None:
-    """(source, author block, orgs) for a paper, or None if arXiv has neither HTML nor PDF text.
+def read_affiliations(fetcher: HeaderFetcher, pid: str, authors: list[str]) -> tuple[str, list] | None:
+    """(source, orgs) for a paper, or None if arXiv has neither HTML nor PDF text.
     The PDF is also tried when the HTML block names no organization: arXiv's HTML conversion
     sometimes keeps only the names."""
     html = fetcher.html(pid)
-    if html:
-        orgs = parse_block(html, authors)
-        if orgs:
-            return "html", html, orgs
+    orgs = parse_block(html, authors) if html else []
+    if orgs:
+        return "html", orgs
     pdf = fetcher.pdf(pid)
     if pdf:
-        orgs = parse_block(pdf, authors)
-        if orgs or not html:
-            return "pdf", pdf, orgs
-    return ("html", html, []) if html else None
+        return "pdf", parse_block(pdf, authors)
+    return ("html", []) if html else None

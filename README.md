@@ -7,14 +7,12 @@ Self-hosted arXiv index for a Raspberry Pi:
 - **Daily updater** (systemd timer): fetches newly submitted papers from the arXiv API, has
   **Gemini** score every new paper for *relevance* (to your `profile.md`) and *importance* (0–10,
   with a one-line TL;DR and reason), then sends a **Telegram** digest plus the top papers. Finally it
-  reads each new paper's **author block** (arXiv HTML, or page 1 of the PDF) and parses the
-  **organizations** behind it with rules (no LLM): company or university, lab, type and email
-  domain, and which authors belong to each.
-- **Search UI** (systemd service): search with filters for **author**, **organization** (name, lab or
-  email domain, e.g. `World Bank` or `worldbankgroup.org`), organization type (company, academia,
-  ...), category, date, minimum Gemini scores and "found in the last N days", sorted by best match,
-  Gemini scores or newest. Author names and organizations are clickable. Includes
-  paper pages and a stats page with run history and Gemini spend.
+  reads each new paper's **author block** (arXiv HTML, or page 1 of the PDF) and parses its
+  **affiliations** with rules (no LLM): organization, unit, email domain and authors.
+- **Search UI** (systemd service): search with filters for **author**, **organization** (name, unit
+  or email domain, e.g. `World Bank` or `worldbankgroup.org`), category, date, minimum Gemini scores
+  and "found in the last N days", sorted by best match, Gemini scores or newest. Includes paper
+  pages and a stats page with run history and Gemini spend.
 
 ```
 arXiv API ──► update (daily timer) ──► SQLite (papers + FTS5 + analysis)
@@ -103,7 +101,6 @@ listed under [Configuration](#configuration-env).
 
 ```bash
 .venv/bin/arxiv-search test-gemini -n 3                # scores the 3 newest papers, saves nothing
-.venv/bin/arxiv-search test-affiliations 2610.36910    # parses one paper's affiliations, saves nothing
 sudo systemctl start arxiv-search-update.service --no-block
 journalctl -fu arxiv-search-update                     # Ctrl-C stops watching, not the update
 ```
@@ -144,7 +141,6 @@ sudo systemctl restart arxiv-search-web
 | `CATEGORIES` | `cs.IR,cs.CL,cs.AI,cs.LG` | |
 | `PROFILE_PATH` | `profile.md` | **edit this**: it is what "relevance" means |
 | `LOOKBACK_DAYS` | `3` | each run re-checks this many days before the newest stored paper |
-| `AFFILIATIONS` | `1` | `0` turns off affiliation parsing in the daily update |
 | `PUBLIC_URL` | `http://raspberrypi.local:8000` | used for links in Telegram messages |
 | `DB_PATH`, `WEB_HOST`, `WEB_PORT` | `data/arxiv.db`, `0.0.0.0`, `8000` | |
 
@@ -185,20 +181,8 @@ Backfilled papers are never sent to Telegram. Only papers found by the daily upd
 arXiv metadata has author names, but affiliations for only about 1.5% of papers. So the updater
 downloads each new paper's author block from arXiv (the HTML version, cut off at the abstract; page 1
 of the PDF when there is no HTML or the HTML block has only names) and parses it with rules in
-`orgparse.py`: no Gemini, no cost. It finds organizations by keywords (University, Inc., Lab, ...)
-and a list of well-known ones, units (Department of ..., ... Lab), email domains, and links authors
-by markers (^1, *, †) or by which names come before each affiliation. arXiv allows one request every
-3 seconds, so this adds about 30 minutes to a daily run of about 500 papers. It runs after the
-Telegram messages, so it doesn't delay them.
-
-To check a paper without saving anything:
-
-```bash
-.venv/bin/arxiv-search test-affiliations 2610.36910   # prints the author block and the parsed orgs
-```
-
-The author block is stored with the result, so after improving the rules you can re-parse
-everything without downloading again: `arxiv-search affiliations --reparse`.
+`orgparse.py`: no Gemini, no cost. arXiv allows one request every 3 seconds, so this adds about 30
+minutes to a daily run of about 500 papers. It runs after the Telegram messages.
 
 Papers already in the index have no affiliations until you backfill them. This is resumable and
 asks for `--yes` above 1,000 papers. It is limited by the arXiv download speed, roughly
@@ -209,11 +193,8 @@ asks for `--yes` above 1,000 papers. It is limited by the arXiv download speed, 
 .venv/bin/arxiv-search affiliations --since 2026-01-01 --yes
 ```
 
-To run it unattended, edit `--since` in `/etc/systemd/system/arxiv-search-affiliations.service`,
-then run `sudo systemctl daemon-reload && sudo systemctl start arxiv-search-affiliations --no-block`.
-It resumes where it stopped. It can run while the daily update runs: all arxiv-search processes
-share one arXiv rate limit (a lock file next to the database), so together they still make at most
-one request every 3.5 seconds, and the backfill simply slows down during the update.
+Don't run it during the daily update (03:00 UTC): both download from arXiv, and together they would
+exceed arXiv's rate limit.
 
 ## Operations
 
@@ -223,7 +204,6 @@ journalctl -u arxiv-search-update --since today   # updater log
 journalctl -fu arxiv-search-web                   # UI log
 .venv/bin/arxiv-search stats                      # counts + last runs
 .venv/bin/arxiv-search update --no-notify         # manual run without messages
-.venv/bin/arxiv-search update --no-affiliations   # skip the slow affiliation step this time
 .venv/bin/arxiv-search update --since 2026-11-01  # re-scan a window (already-known papers are not re-sent)
 ```
 
@@ -237,13 +217,13 @@ journalctl -fu arxiv-search-web                   # UI log
   `WEB_HOST=127.0.0.1` and reach it over SSH or Tailscale. `.env` holds your keys and is
   `chmod 600`.
 - **arXiv rules:** arxiv-search makes one request at a time, at least 3.5 s apart, following the
-  arXiv API terms. The limit is shared by all its processes on the machine (`data/.arxiv-ratelimit`). arXiv metadata is CC0. Full texts stay on arXiv: the UI links to them.
+  arXiv API terms. arXiv metadata is CC0. Full texts stay on arXiv: the UI links to them.
 
 ## Commands
 
 ```
 arxiv-search init | import-kaggle PATH | update | analyze | affiliations | serve | stats
-             telegram-chat-id | test-telegram | test-gemini [-n N] | test-affiliations ID...
+             telegram-chat-id | test-telegram | test-gemini [-n N]
 ```
 
 ## Development

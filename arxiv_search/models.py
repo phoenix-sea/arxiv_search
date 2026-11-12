@@ -42,13 +42,9 @@ class Assessment:
     reason: str = ""
 
 
-ORG_KINDS = ("company", "academia", "government", "nonprofit", "other")
-
-
 @dataclass
 class Org:
     name: str
     unit: str = ""
-    kind: str = "other"  # one of ORG_KINDS
     domain: str = ""
     authors: list[str] = field(default_factory=list)

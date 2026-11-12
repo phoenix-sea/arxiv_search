@@ -4,28 +4,13 @@
 <article class="detail">
   <h1>{{ r.title }}</h1>
   <p class="meta">{{ r.id }} · submitted {{ r.created }}{% if r.updated %} · updated {{ r.updated }}{% endif %} · <span class="cats">{{ r.categories }}</span></p>
-  <p class="authors">{% for a in r.authors | authors %}<a href="/?author={{ a | urlencode }}">{{ a }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>
-
+  <p class="authors">{{ r.authors }}</p>
   {% if orgs %}
-  <section class="affil">
-    <h2>Affiliations</h2>
-    <ul>
-    {% for o in orgs %}
-      <li><a class="org k-{{ o.kind }}" href="/?org={{ o.name | urlencode }}">{{ o.name }}</a>
-        {% if o.unit %}<span>{{ o.unit }}</span>{% endif %}
-        <span class="muted">{{ o.kind }}{% if o.domain %} · <a href="/?org={{ o.domain | urlencode }}">{{ o.domain }}</a>{% endif %}</span>
-        {% if o.authors %}<div class="muted">{% for a in o.authors | authors %}<a href="/?author={{ a | urlencode }}">{{ a }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
-      </li>
-    {% endfor %}
-    </ul>
-    <p class="muted">Parsed from the paper's {{ (affil.source or '').upper() }} author block ({{ affil.model }}) · {{ affil.extracted_at }}</p>
-  </section>
-  {% elif affil and affil.status == 'ok' %}
-  <p class="notice">No affiliations stated in the paper's author block.</p>
-  {% elif affil and affil.status == 'no_source' %}
-  <p class="notice">No HTML or PDF author block was available for affiliations.</p>
-  {% else %}
-  <p class="notice">Affiliations not extracted yet (<code>arxiv-search affiliations</code> backfills older papers).</p>
+  <h2>Affiliations</h2>
+  <ul>
+  {% for o in orgs %}<li>{{ o.name }}{% if o.unit %}, {{ o.unit }}{% endif %}{% if o.domain %} ({{ o.domain }}){% endif %}{% if o.authors %}: <span class="muted">{{ o.authors }}</span>{% endif %}</li>
+  {% endfor %}
+  </ul>
   {% endif %}
 
   {% if r.relevance is not none %}

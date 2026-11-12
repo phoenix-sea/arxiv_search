@@ -16,7 +16,6 @@ from typing import Iterator, Sequence
 import httpx
 
 from . import USER_AGENT
-from .ratelimit import RateLimit
 from .models import Paper, norm
 
 log = logging.getLogger(__name__)
@@ -75,15 +74,18 @@ def parse_feed(xml: bytes | str) -> tuple[int, list[Paper]]:
 
 
 class ArxivClient:
-    def __init__(self, client: httpx.Client | None = None, min_gap: float = MIN_GAP, max_retries: int = 6,
-                 lock_path: str | None = None):
+    def __init__(self, client: httpx.Client | None = None, min_gap: float = MIN_GAP, max_retries: int = 6):
         self.http = client or httpx.Client(timeout=120, headers={"User-Agent": USER_AGENT})
-        self.limit = RateLimit(min_gap, lock_path)  # shared with other arxiv-search processes
+        self.min_gap = min_gap
+        self._last = 0.0
         self.max_retries = max_retries
 
     def _get(self, params: dict) -> bytes:
         for attempt in range(1, self.max_retries + 1):
-            self.limit.wait()
+            wait = self.min_gap - (time.monotonic() - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            self._last = time.monotonic()
             try:
                 r = self.http.get(API, params=params)
                 if r.status_code == 200:

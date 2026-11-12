@@ -6,7 +6,6 @@
   <div class="tile"><b>{{ s.papers | num }}</b><span>papers indexed</span></div>
   <div class="tile"><b>{{ s.analysed | num }}</b><span>analysed by Gemini</span></div>
   <div class="tile"><b>{{ s.discovered | num }}</b><span>found by updater</span></div>
-  <div class="tile"><b>{{ s.affiliated | num }}</b><span>with affiliations</span></div>
   <div class="tile"><b>{{ s.notified | num }}</b><span>sent to Telegram</span></div>
   <div class="tile"><b>{{ s.newest }}</b><span>newest submission</span></div>
 </div>
@@ -14,20 +13,15 @@
 <h2>Update runs</h2>
 <div class="scroll">
 <table>
-  <thead><tr><th>#</th><th>started (UTC)</th><th>window</th><th>status</th><th class="n">fetched</th><th class="n">new</th><th class="n">analysed</th><th class="n">notified</th><th class="n">affil.</th><th>error</th></tr></thead>
+  <thead><tr><th>#</th><th>started (UTC)</th><th>window</th><th>status</th><th class="n">fetched</th><th class="n">new</th><th class="n">analysed</th><th class="n">notified</th><th>error</th></tr></thead>
   <tbody>
   {% for r in runs %}
   <tr class="{{ r.status }}"><td>{{ r.run_id }}</td><td>{{ (r.started_at or '')[:16] }}</td><td>{{ r.window_from }} → {{ r.window_to }}</td><td>{{ r.status }}</td>
-    <td class="n">{{ r.fetched }}</td><td class="n">{{ r.new }}</td><td class="n">{{ r.analyzed }}</td><td class="n">{{ r.notified }}</td><td class="n">{{ r.affiliated or 0 }}</td><td class="err">{{ r.error or '' }}</td></tr>
-  {% else %}<tr><td colspan="10">No runs yet.</td></tr>{% endfor %}
+    <td class="n">{{ r.fetched }}</td><td class="n">{{ r.new }}</td><td class="n">{{ r.analyzed }}</td><td class="n">{{ r.notified }}</td><td class="err">{{ r.error or '' }}</td></tr>
+  {% else %}<tr><td colspan="9">No runs yet.</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>
-
-{% if top_orgs %}
-<h2>Top organizations</h2>
-<div class="orgs">{% for o in top_orgs %}<a class="org k-{{ o.kind }}" href="/?org={{ o.name | urlencode }}">{{ o.name }} <span class="muted">{{ o.n | num }}</span></a>{% endfor %}</div>
-{% endif %}
 
 <h2>Gemini usage</h2>
 <p class="muted">Current model: {{ model }}. Cost uses list prices for the standard tier; check your Google billing for exact amounts.</p>

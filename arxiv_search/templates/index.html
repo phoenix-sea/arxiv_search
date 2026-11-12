@@ -4,17 +4,11 @@
 <form class="search" method="get" action="/">
   <input class="q" type="search" name="q" value="{{ f.q }}" placeholder='Search titles, abstracts, authors, e.g. "learning to rank" AND LLM' autofocus>
   <div class="filters">
-    <label class="wide">Author
-      <input type="search" name="author" value="{{ form.author }}" placeholder="e.g. Yoshua Bengio, or a surname">
+    <label>Author
+      <input type="search" name="author" value="{{ form.author }}">
     </label>
-    <label class="wide">Organization
-      <input type="search" name="org" value="{{ form.org }}" placeholder="e.g. World Bank, worldbankgroup.org">
-    </label>
-    <label>Org type
-      <select name="kind">
-        <option value="">any</option>
-        {% for k in org_kinds %}<option value="{{ k }}" {% if form.kind == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
-      </select>
+    <label>Organization
+      <input type="search" name="org" value="{{ form.org }}">
     </label>
   </div>
   <div class="filters">
@@ -61,7 +55,6 @@
 <p class="summary">
   {% if total %}{{ total | num }}{% if capped %}+{% endif %} papers{% if f.days %} found by the updater in the last {{ f.days }} day{% if f.days > 1 %}s{% endif %}{% endif %}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}
   {% elif f.days and not new_count %}No papers discovered by the daily updater yet. Run <code>arxiv-search update</code>, or search the full index above.
-  {% elif n_affil == 0 %}No affiliations extracted yet. New papers get them during the daily update; run <code>arxiv-search affiliations --since YYYY-MM-DD</code> for older ones.
   {% else %}No papers match.{% endif %}
 </p>
 
@@ -79,9 +72,5 @@
   <p>Words are ANDed: <code>dense retrieval distillation</code>. Phrases: <code>"learning to rank"</code>.
   Operators: <code>LLM AND (reranker OR reranking) NOT survey</code>. Prefix: <code>rerank*</code>.
   Field: <code>title: "semantic search"</code>, <code>authors: Borisyuk</code>. Stemming is on (ranking ≈ ranked).</p>
-  <p><b>Author</b> takes a full name or a surname. Middle names are optional and initials match full names, so
-  <code>Samuel Fraiberger</code> also finds "Samuel P. Fraiberger" and <code>S Fraiberger</code> also finds "Samuel Fraiberger". <b>Organization</b> matches company, university, lab or email domain from the paper's author
-  block (<code>World Bank</code>, <code>worldbankgroup.org</code>, <code>Development Impact AI Lab</code>). Click any author
-  or organization to search for it.</p>
 </details>
 {% endblock %}

@@ -31,8 +31,7 @@ fi
 mkdir -p data
 .venv/bin/arxiv-search init
 
-for unit in arxiv-search-web.service arxiv-search-update.service arxiv-search-update.timer \
-            arxiv-search-backfill.service arxiv-search-affiliations.service; do
+for unit in arxiv-search-web.service arxiv-search-update.service arxiv-search-update.timer arxiv-search-backfill.service; do
   sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@USER@|$USER_NAME|g" "deploy/systemd/$unit" \
     | sudo tee "/etc/systemd/system/$unit" >/dev/null
 done

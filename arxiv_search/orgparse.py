@@ -1,7 +1,7 @@
 """Rule-based affiliation parsing of a paper's author block (no LLM).
 
 Input: the author block as text lines (from arXiv HTML or page 1 of the PDF)
-and the arXiv metadata author list. Output: organizations with unit, kind,
+and the arXiv metadata author list. Output: organizations with unit,
 email domain and the authors that belong to each.
 
   1. email domains are collected; the title (lines before the first author
@@ -24,8 +24,6 @@ import unicodedata
 from typing import Sequence
 
 from .models import Org
-
-PARSER_VERSION = "rules-1"
 
 SUPERSCRIPTS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
 SYMBOLS = "*†‡§¶#♯∗⋆✝♮♭♢♠♣♡"
@@ -65,73 +63,61 @@ TITLE_RE = re.compile(  # job titles in affiliations ("Researcher, Global Produc
     r"intern|fellow|lecturer|md|m\.d\.?|ceo|cto|founder|co-founder|head(?: of .*)?|member)\b", re.I)
 SUFFIX_RE = re.compile(r"^(inc|llc|ltd|gmbh|corp|co|plc|s\.?a|ag|pvt\.? ltd|limited|l\.?p)\.?$", re.I)
 
-# Well-known organizations: pattern -> (canonical name, kind). Checked before the generic rules.
-KNOWN = [(re.compile(p, re.I), n, k) for p, n, k in [
-    (r"google deepmind|\bdeepmind\b", "Google DeepMind", "company"),
-    (r"\bgoogle\b", "Google", "company"),
-    (r"\bmicrosoft\b", "Microsoft", "company"),
-    (r"\bmeta\b(?![ -]?(?:analysis|learning|data|heuristic))|\bfacebook\b|\bfair\b", "Meta", "company"),
-    (r"\bamazon\b|\baws\b", "Amazon", "company"),
-    (r"\bapple\b", "Apple", "company"),
-    (r"\bnvidia\b", "NVIDIA", "company"),
-    (r"\bibm\b", "IBM", "company"),
-    (r"\bopenai\b", "OpenAI", "company"),
-    (r"\banthropic\b", "Anthropic", "company"),
-    (r"\bsalesforce\b", "Salesforce", "company"),
-    (r"\badobe\b", "Adobe", "company"),
-    (r"\bintel\b(?!li)", "Intel", "company"),
-    (r"\bsamsung\b", "Samsung", "company"),
-    (r"\bhuawei\b", "Huawei", "company"),
-    (r"\balibaba\b|\bdamo academy\b|\bant group\b|\btongyi\b|\bqwen\b", "Alibaba", "company"),
-    (r"\btencent\b", "Tencent", "company"),
-    (r"\bbaidu\b", "Baidu", "company"),
-    (r"\bbytedance\b|\btiktok\b", "ByteDance", "company"),
-    (r"\bjd\.com\b|\bjd explore\b", "JD.com", "company"),
-    (r"\bxiaomi\b", "Xiaomi", "company"),
-    (r"\bkuaishou\b", "Kuaishou", "company"),
-    (r"\bmeituan\b", "Meituan", "company"),
-    (r"\bnetflix\b", "Netflix", "company"),
-    (r"\bspotify\b", "Spotify", "company"),
-    (r"\blinkedin\b", "LinkedIn", "company"),
-    (r"\buber\b", "Uber", "company"),
-    (r"\bairbnb\b", "Airbnb", "company"),
-    (r"\bpinterest\b", "Pinterest", "company"),
-    (r"\bsnap inc|\bsnapchat\b", "Snap", "company"),
-    (r"\bbloomberg\b", "Bloomberg", "company"),
-    (r"\bqualcomm\b", "Qualcomm", "company"),
-    (r"\bsony\b", "Sony", "company"),
-    (r"\bnaver\b", "NAVER", "company"),
-    (r"\bmistral ai\b", "Mistral AI", "company"),
-    (r"\bcohere\b", "Cohere", "company"),
-    (r"\bhugging ?face\b", "Hugging Face", "company"),
-    (r"\bservicenow\b", "ServiceNow", "company"),
-    (r"\boracle\b", "Oracle", "company"),
-    (r"\bsap\b", "SAP", "company"),
-    (r"\bsiemens\b", "Siemens", "company"),
-    (r"\bbosch\b", "Bosch", "company"),
-    (r"\bdell\b", "Dell Technologies", "company"),
-    (r"\bworld bank\b", "World Bank Group", "government"),
-    (r"\ballen institute for (?:ai|artificial intelligence)\b|\bai2\b", "Allen Institute for AI", "nonprofit"),
-    (r"\bmassachusetts institute of technology\b|^mit$|^mit csail$|^csail$", "Massachusetts Institute of Technology",
-     "academia"),
-    (r"\bcarnegie mellon\b|^cmu$", "Carnegie Mellon University", "academia"),
-    (r"\bshanghai (?:ai|artificial intelligence) lab", "Shanghai AI Laboratory", "other"),
-    (r"\bku ?leuven\b", "KU Leuven", "academia"),
-    (r"^tno$", "TNO", "other"),
-    (r"\bcentralesup[ée]lec\b", "CentraleSupélec", "academia"),
-    (r"^(?:universit[ée] )?paris[- ]saclay$", "Université Paris-Saclay", "academia"),
+# Well-known organizations: pattern -> canonical name. Checked before the generic rules.
+KNOWN = [(re.compile(p, re.I), n) for p, n in [
+    (r"google deepmind|\bdeepmind\b", "Google DeepMind"),
+    (r"\bgoogle\b", "Google"),
+    (r"\bmicrosoft\b", "Microsoft"),
+    (r"\bmeta\b(?![ -]?(?:analysis|learning|data|heuristic))|\bfacebook\b|\bfair\b", "Meta"),
+    (r"\bamazon\b|\baws\b", "Amazon"),
+    (r"\bapple\b", "Apple"),
+    (r"\bnvidia\b", "NVIDIA"),
+    (r"\bibm\b", "IBM"),
+    (r"\bopenai\b", "OpenAI"),
+    (r"\banthropic\b", "Anthropic"),
+    (r"\bsalesforce\b", "Salesforce"),
+    (r"\badobe\b", "Adobe"),
+    (r"\bintel\b(?!li)", "Intel"),
+    (r"\bsamsung\b", "Samsung"),
+    (r"\bhuawei\b", "Huawei"),
+    (r"\balibaba\b|\bdamo academy\b|\bant group\b|\btongyi\b|\bqwen\b", "Alibaba"),
+    (r"\btencent\b", "Tencent"),
+    (r"\bbaidu\b", "Baidu"),
+    (r"\bbytedance\b|\btiktok\b", "ByteDance"),
+    (r"\bjd\.com\b|\bjd explore\b", "JD.com"),
+    (r"\bxiaomi\b", "Xiaomi"),
+    (r"\bkuaishou\b", "Kuaishou"),
+    (r"\bmeituan\b", "Meituan"),
+    (r"\bnetflix\b", "Netflix"),
+    (r"\bspotify\b", "Spotify"),
+    (r"\blinkedin\b", "LinkedIn"),
+    (r"\buber\b", "Uber"),
+    (r"\bairbnb\b", "Airbnb"),
+    (r"\bpinterest\b", "Pinterest"),
+    (r"\bsnap inc|\bsnapchat\b", "Snap"),
+    (r"\bbloomberg\b", "Bloomberg"),
+    (r"\bqualcomm\b", "Qualcomm"),
+    (r"\bsony\b", "Sony"),
+    (r"\bnaver\b", "NAVER"),
+    (r"\bmistral ai\b", "Mistral AI"),
+    (r"\bcohere\b", "Cohere"),
+    (r"\bhugging ?face\b", "Hugging Face"),
+    (r"\bservicenow\b", "ServiceNow"),
+    (r"\boracle\b", "Oracle"),
+    (r"\bsap\b", "SAP"),
+    (r"\bsiemens\b", "Siemens"),
+    (r"\bbosch\b", "Bosch"),
+    (r"\bdell\b", "Dell Technologies"),
+    (r"\bworld bank\b", "World Bank Group"),
+    (r"\ballen institute for (?:ai|artificial intelligence)\b|\bai2\b", "Allen Institute for AI"),
+    (r"\bmassachusetts institute of technology\b|^mit$|^mit csail$|^csail$", "Massachusetts Institute of Technology"),
+    (r"\bcarnegie mellon\b|^cmu$", "Carnegie Mellon University"),
+    (r"\bshanghai (?:ai|artificial intelligence) lab", "Shanghai AI Laboratory"),
+    (r"\bku ?leuven\b", "KU Leuven"),
+    (r"^tno$", "TNO"),
+    (r"\bcentralesup[ée]lec\b", "CentraleSupélec"),
+    (r"^(?:universit[ée] )?paris[- ]saclay$", "Université Paris-Saclay"),
 ]]
-DOMAIN_ORGS = {  # email domain -> organization, when the block names no organization for it
-    "google.com": "Google", "deepmind.com": "Google DeepMind", "microsoft.com": "Microsoft",
-    "meta.com": "Meta", "fb.com": "Meta", "amazon.com": "Amazon", "apple.com": "Apple",
-    "nvidia.com": "NVIDIA", "ibm.com": "IBM", "openai.com": "OpenAI", "anthropic.com": "Anthropic",
-    "alibaba-inc.com": "Alibaba", "tencent.com": "Tencent", "baidu.com": "Baidu",
-    "bytedance.com": "ByteDance", "huawei.com": "Huawei", "salesforce.com": "Salesforce",
-    "adobe.com": "Adobe", "samsung.com": "Samsung", "intel.com": "Intel", "dell.com": "Dell Technologies",
-    "worldbank.org": "World Bank Group", "worldbankgroup.org": "World Bank Group",
-    "allenai.org": "Allen Institute for AI", "mit.edu": "Massachusetts Institute of Technology",
-    "cmu.edu": "Carnegie Mellon University",
-}
 GENERIC_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "qq.com",
                 "163.com", "126.com", "foxmail.com", "icloud.com", "me.com", "protonmail.com", "proton.me",
                 "mail.com", "aol.com", "yandex.ru", "sina.com", "naver.com", "gmx.de", "web.de", "hotmail.co.uk",
@@ -201,28 +187,11 @@ def domains_in(text: str) -> list[str]:
     return out
 
 
-def _known(s: str) -> tuple[str, str] | None:
-    for rx, name, kind in KNOWN:
+def _known(s: str) -> str | None:
+    for rx, name in KNOWN:
         if rx.search(s):
-            return name, kind
+            return name
     return None
-
-
-def classify(name: str) -> str:
-    known = _known(name)
-    if known:
-        return known[1]
-    if UNIV_RE.search(name) or (re.search(r"\binstitut", name, re.I) and ACADEMIA_RE.search(name)):
-        return "academia"
-    if COMPANY_RE.search(name):
-        return "company"
-    if NONPROFIT_RE.search(name):
-        return "nonprofit"
-    if GOV_RE.search(name):
-        return "government"
-    if ACADEMIA_RE.search(name):
-        return "academia"
-    return "other"
 
 
 def _is_address(part: str) -> bool:
@@ -297,16 +266,13 @@ def parse_segment(seg: str, labeled: bool = False) -> list[Org]:
         units = parts[prev + 1:a][-2:]
         prev = a
         org, unit = parts[a], ", ".join(units)
-        known = _known(org)
-        if known:
-            name, kind = known
+        name = _known(org)
+        if name:
             if _fold(org) not in _fold(name) and (_fold(name) not in _fold(org) or len(org) > len(name) + 12):
                 unit = unit or org  # "Amazon Web Services" -> Amazon / Amazon Web Services
             org = name
-        else:
-            kind = classify(org)
         if len(org) <= 120 and len(org.split()) <= 14:
-            out.append(Org(name=org, unit=unit[:160], kind=kind))
+            out.append(Org(name=org, unit=unit[:160]))
     return out
 
 
@@ -436,23 +402,16 @@ def parse_block(text: str, authors: Sequence[str]) -> list[Org]:
                 cur["marks"].update(_marks(mk.group(1)))
     close()
 
-    # domains: attach to matching orgs, otherwise add an org for a known domain
+    # domains: attach to the organization they abbreviate
     for d in domains:
         reg = registrable(d)
         label = reg.split(".")[0]
-        hit = None
         for o in orgs:
             compact = re.sub(r"[^a-z0-9]", "", _fold(o.name))
             initials = "".join(w[0] for w in re.findall(r"[a-z0-9]+", _fold(o.name)) if w not in STOP)
-            if (len(label) >= 3 and (label in compact or label == initials)) or DOMAIN_ORGS.get(reg) == o.name:
-                hit = o
+            if len(label) >= 3 and (label in compact or label == initials):
+                o.domain = o.domain or reg
                 break
-        if hit:
-            hit.domain = hit.domain or reg
-        elif reg in DOMAIN_ORGS:
-            name = DOMAIN_ORGS[reg]
-            orgs.append(Org(name=name, kind=classify(name), domain=reg))
-            org_marks.append(set())
 
     # authors: by markers when both sides have them, else by position
     if author_marks:
