@@ -1,35 +1,27 @@
 # arxiv-search
 
-Self-hosted arXiv index for a Raspberry Pi:
+Self-hosted arXiv index for a Raspberry Pi.
 
-- **Index**: SQLite + FTS5 full-text search over arXiv metadata (title, abstract, authors) for
-  your categories (default `cs.IR, cs.CL, cs.AI, cs.LG`, about 500k papers, about 1.4 GB).
-- **Daily updater** (systemd timer): fetches newly submitted papers from the arXiv API, has
-  **Gemini** score every new paper for *relevance* (to your `profile.md`) and *importance* (0–10,
-  with a one-line TL;DR and reason), then sends a **Telegram** digest plus the top papers. Finally it
-  reads each new paper's **author block** (arXiv HTML, or page 1 of the PDF) and parses its
-  **affiliations** with rules (no LLM): organization, unit, email domain and authors.
-- **Search UI** (systemd service): search with filters for **author**, **organization** (name, unit
-  or email domain, e.g. `World Bank` or `worldbankgroup.org`), category, date, minimum Gemini scores
-  and "found in the last N days", sorted by best match, Gemini scores or newest. Includes paper
-  pages and a stats page with run history and Gemini spend.
+- **Index:** arXiv papers in cs.IR, cs.CL, cs.AI and cs.LG (SQLite full-text search). The initial
+  index comes from the Kaggle arXiv snapshot.
+- **Affiliations:** for every paper, the author block (arXiv HTML, or page 1 of the PDF) is
+  parsed with regular expressions into organization, unit and email domain, and indexed.
+- **Daily job** (03:00 UTC), in priority order:
+  1. crawl papers submitted since the newest one in the index;
+  2. parse their affiliations;
+  3. ask Gemini whether each new paper is worth interest;
+  4. send a Telegram message (title, authors, affiliations, arXiv link) for each one it flags;
+  5. backfill affiliations of older papers, newest first, until 02:30 UTC.
+- **UI:** search with judgment buttons (*interesting* / *not interesting*) that store your labels;
+  papers by affiliation, newest first; stats of the most frequent authors and affiliations in the
+  last N days.
 
-```
-arXiv API ──► update (daily timer) ──► SQLite (papers + FTS5 + analysis)
-                  │        │                        ▲
-                  │        └─► Gemini (batches of 20 papers, JSON scores)
-                  └─► Telegram (digest + top N)     │
-                                         web UI (FastAPI) ◄── browser on your LAN
-```
-
-## Requirements
-
-- Raspberry Pi 4/5 with **64-bit** Raspberry Pi OS (Bookworm or later, Python 3.11+). On 32-bit
-  OS some dependencies have no prebuilt wheels.
-- About 3 GB of free disk. An SSD is better than an SD card for SQLite.
-- A Gemini API key (<https://aistudio.google.com/apikey>) and a Telegram bot (see below).
+The Gemini prompt is a placeholder (`PROMPT` in `arxiv_search/gemini.py`) until it is written
+from the labels.
 
 ## Raspberry Pi setup
+
+Needs a Raspberry Pi 4/5 with 64-bit Raspberry Pi OS and about 3 GB of free disk.
 
 ### 1. Prepare the Pi
 
@@ -53,8 +45,8 @@ mkdir -p ~/arxiv_search/data
 
 ### 3. Copy the initial index
 
-**Option A: copy the database you already have** (fastest, 1.4 GB). On your computer, flush
-SQLite's write-ahead log first so the single file is complete, then copy it:
+**Option A: copy the database you already have** (1.4 GB). On your computer, flush SQLite's
+write-ahead log first so the single file is complete, then copy it:
 
 ```bash
 cd ~/src/arxiv_search
@@ -64,8 +56,7 @@ scp data/arxiv.db pi@raspberrypi.local:~/arxiv_search/data/arxiv.db
 
 **Option B: build it on the Pi** from the Kaggle snapshot
 (<https://www.kaggle.com/datasets/Cornell-University/arxiv>, free account, ~1.9 GB zip). Copy
-`archive.zip` to the Pi, finish step 4, then run
-`.venv/bin/arxiv-search import-kaggle ~/archive.zip` (about 10 minutes on a Pi 5).
+`archive.zip` to the Pi, finish step 4, then run `.venv/bin/arxiv-search import-kaggle ~/archive.zip`.
 
 ### 4. Install
 
@@ -74,156 +65,62 @@ cd ~/arxiv_search
 ./deploy/install.sh
 ```
 
-The script creates the virtualenv, installs the dependencies, creates `.env` from `.env.example`
-(`chmod 600`), migrates the database, installs the systemd units and starts the web UI and the
-daily timer.
+This creates the virtualenv, installs the dependencies, creates `.env` from `.env.example`,
+prepares the database, installs the systemd units and starts the web UI and the daily timer.
 
 ### 5. Configure
 
 ```bash
-nano .env          # GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PUBLIC_URL
-nano profile.md    # your interests: this is what Gemini's "relevance" score means
+nano .env
 sudo systemctl restart arxiv-search-web
 ```
 
-Get a Gemini key at <https://aistudio.google.com/apikey>. Set `PUBLIC_URL` to the address you open
-the UI with (e.g. `http://raspberrypi.local:8000`); Telegram links point there. All settings are
-listed under [Configuration](#configuration-env).
+| Variable | Default | |
+|---|---|---|
+| `GEMINI_API_KEY` | | from <https://aistudio.google.com/apikey>; without it nothing is flagged |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | | without them no messages are sent |
+| `CATEGORIES` | `cs.IR,cs.CL,cs.AI,cs.LG` | |
+| `DB_PATH` | `data/arxiv.db` | |
+| `WEB_PORT` | `8000` | |
 
-**Telegram bot:**
+**Telegram bot:** in Telegram, message **@BotFather**, send `/newbot` and copy the token into
+`TELEGRAM_BOT_TOKEN`. Send your new bot any message, then open
+`https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser; the number at `"chat":{"id":...}`
+is your `TELEGRAM_CHAT_ID`.
 
-1. In Telegram, message **@BotFather**, send `/newbot` and copy the token into `TELEGRAM_BOT_TOKEN`.
-2. Open your new bot and send it any message.
-3. `.venv/bin/arxiv-search telegram-chat-id` prints the line to put in `.env`.
-4. `.venv/bin/arxiv-search test-telegram` sends a test message.
-
-### 6. Check, then run the first update
+### 6. Run the first job
 
 ```bash
-.venv/bin/arxiv-search test-gemini -n 3                # scores the 3 newest papers, saves nothing
-sudo systemctl start arxiv-search-update.service --no-block
-journalctl -fu arxiv-search-update                     # Ctrl-C stops watching, not the update
+sudo systemctl start --no-block arxiv-search-update.service
+journalctl -fu arxiv-search-update        # Ctrl-C stops watching, not the job
 ```
 
-The first run fetches everything since the newest paper in the index (about 450 papers per day
-since the 2026-10-29 snapshot, so about 6k on 2026-11-11). It scores them with Gemini (about $3),
-sends you a digest plus the top 15 on Telegram, and then parses their affiliations, which takes
-several hours at arXiv's rate limit. After that, each daily run (03:00 UTC) handles about 300–800
-papers in under an hour.
+The first run crawls everything since the newest paper in the index, so it takes longer than a
+normal day. arXiv allows one request every 3 seconds; parsing affiliations needs one or two
+downloads per paper, so about 900 papers an hour. After the new papers, the job keeps backfilling
+older papers until 02:30 UTC and then stops, so the next run starts on time.
 
 ### 7. Open the UI
 
-Open `http://raspberrypi.local:8000` from any device on your network. Search works on the whole
-index right away. Gemini scores and affiliations appear for papers as they are processed; older
-papers can be backfilled (see [Backfill](#backfill-optional) and [Affiliations](#affiliations)).
+`http://raspberrypi.local:8000` from any device on your network. The UI has no login: keep it on
+your LAN.
 
 ### Updating
 
 ```bash
 cd ~/arxiv_search
 git pull
-.venv/bin/pip install -e .
-./deploy/install.sh           # re-applies the systemd units; keeps .env and the database
+./deploy/install.sh            # keeps .env and the database
 sudo systemctl restart arxiv-search-web
 ```
 
-## Configuration (`.env`)
-
-| Variable | Default | |
-|---|---|---|
-| `GEMINI_API_KEY` | | required for analysis |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | `gemini-2.5-flash-lite` is about 5× cheaper |
-| `GEMINI_THINKING_LEVEL` | `minimal` | thinking tokens are billed as output; empty = model default |
-| `GEMINI_BATCH_SIZE` / `GEMINI_RPM` | `20` / `10` | papers per request, and requests per minute |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | | notifications are off unless both are set |
-| `NOTIFY_MIN_RELEVANCE` / `NOTIFY_MIN_IMPORTANCE` | `7` / `0` | which new papers get their own message |
-| `NOTIFY_MAX_PER_RUN` | `15` | individual messages per run; the digest counts the rest |
-| `CATEGORIES` | `cs.IR,cs.CL,cs.AI,cs.LG` | |
-| `PROFILE_PATH` | `profile.md` | **edit this**: it is what "relevance" means |
-| `LOOKBACK_DAYS` | `3` | each run re-checks this many days before the newest stored paper |
-| `PUBLIC_URL` | `http://raspberrypi.local:8000` | used for links in Telegram messages |
-| `DB_PATH`, `WEB_HOST`, `WEB_PORT` | `data/arxiv.db`, `0.0.0.0`, `8000` | |
-
-Changes take effect on the next update run. After changing web settings, run
-`sudo systemctl restart arxiv-search-web`.
-
-## Gemini cost
-
-These are estimates at list prices (standard tier, Nov 2026), assuming about 420 input and 140
-output tokens per paper. Actual token use is recorded on the **Stats** page.
-
-| Work | Papers | gemini-3.5-flash-lite | gemini-2.5-flash-lite |
-|---|---|---|---|
-| Daily updates | ~13k / month | ~$6 / month | ~$1.3 / month |
-| First catch-up | ~4.4k | ~$2 | ~$0.4 |
-| Backfill 2025+ | ~190k | ~$90 | ~$19 |
-| Backfill 2023+ | ~310k | ~$150 | ~$30 |
-| Backfill everything | ~500k | ~$240 | ~$49 |
-
-### Backfill (optional)
-
-Papers from the initial index are searchable but not scored. Scoring them is optional, resumable,
-and asks for confirmation (`--yes`) above 1,000 papers:
+## Logs
 
 ```bash
-.venv/bin/arxiv-search analyze --since 2025-01-01                       # prints count + cost estimate
-.venv/bin/arxiv-search analyze --since 2025-01-01 --model gemini-2.5-flash-lite --yes
-```
-
-To run it unattended, edit `ExecStart` in `/etc/systemd/system/arxiv-search-backfill.service`,
-then run `sudo systemctl daemon-reload && sudo systemctl start arxiv-search-backfill`. It stops
-cleanly if Gemini quota runs out, and you can start it again later.
-
-Backfilled papers are never sent to Telegram. Only papers found by the daily updater are.
-
-### Affiliations
-
-arXiv metadata has author names, but affiliations for only about 1.5% of papers. So the updater
-downloads each new paper's author block from arXiv (the HTML version, cut off at the abstract; page 1
-of the PDF when there is no HTML or the HTML block has only names) and parses it with rules in
-`orgparse.py`: no Gemini, no cost. arXiv allows one request every 3 seconds, so this adds about 30
-minutes to a daily run of about 500 papers. It runs after the Telegram messages.
-
-Papers already in the index have no affiliations until you backfill them. This is resumable and
-asks for `--yes` above 1,000 papers. It is limited by the arXiv download speed, roughly
-900 papers an hour: ~11 hours for one month of papers, ~4.5 days for 2026, ~9 days for 2025+.
-
-```bash
-.venv/bin/arxiv-search affiliations --since 2026-10-01         # prints count and time estimate
-.venv/bin/arxiv-search affiliations --since 2026-01-01 --yes
-```
-
-Don't run it during the daily update (03:00 UTC): both download from arXiv, and together they would
-exceed arXiv's rate limit.
-
-## Operations
-
-```bash
-systemctl list-timers arxiv-search-update.timer   # next run (daily 03:00 UTC, after arXiv's announcement)
-journalctl -u arxiv-search-update --since today   # updater log
-journalctl -fu arxiv-search-web                   # UI log
-.venv/bin/arxiv-search stats                      # counts + last runs
-.venv/bin/arxiv-search update --no-notify         # manual run without messages
-.venv/bin/arxiv-search update --since 2026-11-01  # re-scan a window (already-known papers are not re-sent)
-```
-
-- **Failures:** if an update fails, it is logged on the Stats page and you get a ⚠️ message on
-  Telegram. Papers whose Gemini analysis failed are retried on the next run.
-- **Missed runs:** the timer is `Persistent`, so a Pi that was off at 03:00 runs the update at boot.
-- **Gaps:** the update window always starts from the newest stored paper, so gaps of any length
-  are filled.
-- **Backups:** stop the timer, then copy `data/arxiv.db`.
-- **Security:** the UI has no login and binds to `0.0.0.0`. Keep it on your LAN, or set
-  `WEB_HOST=127.0.0.1` and reach it over SSH or Tailscale. `.env` holds your keys and is
-  `chmod 600`.
-- **arXiv rules:** arxiv-search makes one request at a time, at least 3.5 s apart, following the
-  arXiv API terms. arXiv metadata is CC0. Full texts stay on arXiv: the UI links to them.
-
-## Commands
-
-```
-arxiv-search init | import-kaggle PATH | update | analyze | affiliations | serve | stats
-             telegram-chat-id | test-telegram | test-gemini [-n N]
+journalctl -u arxiv-search-update --since today
+journalctl -fu arxiv-search-web
+systemctl list-timers arxiv-search-update.timer
 ```
 
 ## Development
@@ -232,8 +129,3 @@ arxiv-search init | import-kaggle PATH | update | analyze | affiliations | serve
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m pytest -q
 ```
-
-Layout: `arxiv_search/` contains `arxiv_api.py` (fetch), `kaggle.py` (initial import), `db.py`
-(SQLite/FTS5), `gemini.py` (analysis), `telegram.py`, `pipeline.py` (daily run), `web.py` and
-`templates/` (UI), `affiliations.py` (author block download), `orgparse.py` (affiliation rules), and
-`cli.py`. `deploy/` has the systemd units and the install script.

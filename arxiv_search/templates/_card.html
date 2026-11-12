@@ -1,34 +1,25 @@
 <article class="card">
-  <div class="card-head">
-    <a class="title" href="/paper/{{ r.id }}">{{ r.title }}</a>
-    {% if r.relevance is not none %}
-    <span class="scores">
-      <span class="score rel s{{ r.relevance }}" title="Gemini relevance to your profile">🎯 {{ r.relevance }}</span>
-      <span class="score imp s{{ r.importance }}" title="Gemini importance estimate">⭐ {{ r.importance }}</span>
-    </span>
-    {% endif %}
-  </div>
+  <a class="title" href="https://arxiv.org/abs/{{ r.id }}" target="_blank" rel="noopener">{{ r.title }}</a>
   <div class="meta">
     <span>{{ r.created }}</span> ·
     <span class="cats">{{ r.categories }}</span> ·
     {% set au = (r.authors or '').split('; ') %}
     <span>{{ au[0] }}{% if au|length > 1 %} et al.{% endif %}</span>
-    {% if r.added_at %}<span class="badge">new</span>{% endif %}
   </div>
-  {% if r.tldr %}
-  <p class="tldr">{{ r.tldr }}</p>
+  {% if orgs.get(r.id) %}
+  <div class="words">{% for name in orgs[r.id] %}<a class="word{% if name == org %} up{% endif %}" href="/?{{ ({'q': q, 'org': name} if q and page_kind == 'search' else {'org': name}) | urlencode }}" title="only papers from this affiliation">{{ name }}</a>{% endfor %}</div>
   {% endif %}
   {% if r.snip %}
   <p class="snip">{{ r.snip | hl }}</p>
-  {% elif not r.tldr %}
+  {% else %}
   <p class="snip">{{ (r.abstract or '')[:320] }}{% if (r.abstract or '')|length > 320 %}…{% endif %}</p>
   {% endif %}
-  <div class="foot">
-    {% for t in r.topics | topics %}<a class="tag" href="/?q=%22{{ t | urlencode }}%22">{{ t }}</a>{% endfor %}
-    <span class="links">
-      <a href="https://arxiv.org/abs/{{ r.id }}" target="_blank" rel="noopener">abs</a>
-      <a href="https://arxiv.org/html/{{ r.id }}" target="_blank" rel="noopener">html</a>
-      <a href="https://arxiv.org/pdf/{{ r.id }}" target="_blank" rel="noopener">pdf</a>
-    </span>
-  </div>
+  <form class="judge" method="post" action="/label">
+    <input type="hidden" name="id" value="{{ r.id }}">
+    <input type="hidden" name="next" value="{{ here }}">
+    {% set cur = user_labels.get(r.id) %}
+    {% for l in labels %}
+    <button name="label" value="{{ '' if cur == l else l }}" class="{{ 'on' if cur == l }}">{{ l }}</button>
+    {% endfor %}
+  </form>
 </article>

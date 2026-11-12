@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "arxiv-search"
 version = "0.1.0"
-description = "Self-hosted arXiv index with Gemini triage, Telegram alerts and a search UI (Raspberry Pi friendly)"
+description = "Self-hosted arXiv index with affiliations, Gemini interest check, Telegram alerts and a search UI"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110",
@@ -14,6 +14,7 @@ dependencies = [
   "httpx>=0.27",
   "python-dotenv>=1.0",
   "pypdf>=4",
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

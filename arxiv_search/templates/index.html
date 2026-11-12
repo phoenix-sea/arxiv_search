@@ -1,76 +1,13 @@
 {% extends "base.html" %}
-{% block title %}{% for v in [f.q, f.author, f.org] if v %}{{ v }} · {% endfor %}arXiv search{% endblock %}
+{% block title %}{% if q %}{{ q }} · {% endif %}{% if org %}{{ org }} · {% endif %}arXiv search{% endblock %}
 {% block content %}
 <form class="search" method="get" action="/">
-  <input class="q" type="search" name="q" value="{{ f.q }}" placeholder='Search titles, abstracts, authors, e.g. "learning to rank" AND LLM' autofocus>
-  <div class="filters">
-    <label>Author
-      <input type="search" name="author" value="{{ form.author }}">
-    </label>
-    <label>Organization
-      <input type="search" name="org" value="{{ form.org }}">
-    </label>
-  </div>
-  <div class="filters">
-    <label>Category
-      <select name="cat">
-        <option value="">All</option>
-        {% for c in categories %}<option value="{{ c }}" {% if f.cat == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Submitted since
-      <input type="date" name="since" value="{{ f.since }}">
-    </label>
-    <label>Relevance ≥
-      <select name="min_rel">
-        <option value="">any</option>
-        {% for v in [3,5,6,7,8,9] %}<option value="{{ v }}" {% if f.min_rel == v %}selected{% endif %}>{{ v }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Importance ≥
-      <select name="min_imp">
-        <option value="">any</option>
-        {% for v in [3,5,6,7,8,9] %}<option value="{{ v }}" {% if f.min_imp == v %}selected{% endif %}>{{ v }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Found in last
-      <select name="days">
-        <option value="">all time</option>
-        {% for v in [1,3,7,14,30] %}<option value="{{ v }}" {% if form.days == v %}selected{% endif %}>{{ v }} day{% if v > 1 %}s{% endif %}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Sort
-      <select name="sort">
-        {% for k, v in sorts.items() %}<option value="{{ k }}" {% if form.sort == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
-      </select>
-    </label>
-    <button type="submit">Search</button>
-  </div>
+  <input class="q" type="search" name="q" value="{{ q }}" placeholder="Search titles, abstracts, authors" autofocus>
+  {% if org %}<input type="hidden" name="org" value="{{ org }}">{% endif %}
 </form>
-
-{% if error %}
-<p class="notice error">Query error: {{ error }}</p>
+{% if org %}
+<p class="filter">Affiliation: <b>{{ org }}</b> <a href="?{{ {'q': q} | urlencode if q else '' }}">× clear</a></p>
 {% endif %}
-
-<p class="summary">
-  {% if total %}{{ total | num }}{% if capped %}+{% endif %} papers{% if f.days %} found by the updater in the last {{ f.days }} day{% if f.days > 1 %}s{% endif %}{% endif %}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}
-  {% elif f.days and not new_count %}No papers discovered by the daily updater yet. Run <code>arxiv-search update</code>, or search the full index above.
-  {% else %}No papers match.{% endif %}
-</p>
-
-{% for r in rows %}{% include "_card.html" %}{% endfor %}
-
-{% if prev_url or next_url %}
-<nav class="pager">
-  {% if prev_url %}<a href="{{ prev_url }}">← Previous</a>{% else %}<span></span>{% endif %}
-  {% if next_url %}<a href="{{ next_url }}">Next →</a>{% endif %}
-</nav>
-{% endif %}
-
-<details class="help">
-  <summary>Search syntax</summary>
-  <p>Words are ANDed: <code>dense retrieval distillation</code>. Phrases: <code>"learning to rank"</code>.
-  Operators: <code>LLM AND (reranker OR reranking) NOT survey</code>. Prefix: <code>rerank*</code>.
-  Field: <code>title: "semantic search"</code>, <code>authors: Borisyuk</code>. Stemming is on (ranking ≈ ranked).</p>
-</details>
+{% if not q and not org %}<p class="summary">Newest papers</p>{% elif not rows and not error %}<p class="summary">No papers match.</p>{% endif %}
+{% include "_results.html" %}
 {% endblock %}

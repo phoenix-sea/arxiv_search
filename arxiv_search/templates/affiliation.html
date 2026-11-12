@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{% if q %}{{ q }} · {% endif %}Affiliations{% endblock %}
+{% block content %}
+<form class="search" method="get" action="/affiliation">
+  <input class="q" type="search" name="q" value="{{ q }}" placeholder="Affiliation, unit or email domain, e.g. World Bank" autofocus>
+</form>
+{% if q and not rows and not error %}<p class="summary">No papers match.</p>{% elif rows %}<p class="summary">Newest first</p>{% endif %}
+{% include "_results.html" %}
+{% endblock %}

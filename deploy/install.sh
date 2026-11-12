@@ -26,12 +26,12 @@ fi
 if [ ! -f .env ]; then
   cp .env.example .env
   chmod 600 .env
-  echo "Created .env: fill in GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PUBLIC_URL"
+  echo "Created .env: fill in GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
 fi
 mkdir -p data
 .venv/bin/arxiv-search init
 
-for unit in arxiv-search-web.service arxiv-search-update.service arxiv-search-update.timer arxiv-search-backfill.service; do
+for unit in arxiv-search-web.service arxiv-search-update.service arxiv-search-update.timer; do
   sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@USER@|$USER_NAME|g" "deploy/systemd/$unit" \
     | sudo tee "/etc/systemd/system/$unit" >/dev/null
 done
@@ -42,4 +42,4 @@ echo
 echo "Installed."
 echo "  UI:       http://$(hostname).local:$(grep -E '^WEB_PORT=' .env | cut -d= -f2 || echo 8000)"
 echo "  Timer:    systemctl list-timers arxiv-search-update.timer"
-echo "  Run now:  sudo systemctl start arxiv-search-update.service && journalctl -fu arxiv-search-update"
+echo "  Run now:  sudo systemctl start --no-block arxiv-search-update.service && journalctl -fu arxiv-search-update"

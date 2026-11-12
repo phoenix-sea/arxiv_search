@@ -1,0 +1,8 @@
+{% if error %}<p class="notice error">Query error: {{ error }}</p>{% endif %}
+{% for r in rows %}{% include "_card.html" %}{% endfor %}
+{% if prev_url or next_url %}
+<nav class="pager">
+  {% if prev_url %}<a href="{{ prev_url }}">← Previous</a>{% else %}<span></span>{% endif %}
+  {% if next_url %}<a href="{{ next_url }}">Next →</a>{% endif %}
+</nav>
+{% endif %}

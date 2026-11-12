@@ -1,39 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Stats · arXiv search{% endblock %}
 {% block content %}
-<h1>Index</h1>
-<div class="tiles">
-  <div class="tile"><b>{{ s.papers | num }}</b><span>papers indexed</span></div>
-  <div class="tile"><b>{{ s.analysed | num }}</b><span>analysed by Gemini</span></div>
-  <div class="tile"><b>{{ s.discovered | num }}</b><span>found by updater</span></div>
-  <div class="tile"><b>{{ s.notified | num }}</b><span>sent to Telegram</span></div>
-  <div class="tile"><b>{{ s.newest }}</b><span>newest submission</span></div>
-</div>
-
-<h2>Update runs</h2>
-<div class="scroll">
-<table>
-  <thead><tr><th>#</th><th>started (UTC)</th><th>window</th><th>status</th><th class="n">fetched</th><th class="n">new</th><th class="n">analysed</th><th class="n">notified</th><th>error</th></tr></thead>
-  <tbody>
-  {% for r in runs %}
-  <tr class="{{ r.status }}"><td>{{ r.run_id }}</td><td>{{ (r.started_at or '')[:16] }}</td><td>{{ r.window_from }} → {{ r.window_to }}</td><td>{{ r.status }}</td>
-    <td class="n">{{ r.fetched }}</td><td class="n">{{ r.new }}</td><td class="n">{{ r.analyzed }}</td><td class="n">{{ r.notified }}</td><td class="err">{{ r.error or '' }}</td></tr>
-  {% else %}<tr><td colspan="9">No runs yet.</td></tr>{% endfor %}
-  </tbody>
-</table>
-</div>
-
-<h2>Gemini usage</h2>
-<p class="muted">Current model: {{ model }}. Cost uses list prices for the standard tier; check your Google billing for exact amounts.</p>
-<div class="scroll">
-<table>
-  <thead><tr><th>day</th><th>model</th><th class="n">calls</th><th class="n">input tokens</th><th class="n">output tokens</th><th class="n">est. cost</th></tr></thead>
-  <tbody>
-  {% for u in usage %}
-  <tr><td>{{ u.day }}</td><td>{{ u.model }}</td><td class="n">{{ u.calls | num }}</td><td class="n">{{ u.input_tokens | num }}</td><td class="n">{{ u.output_tokens | num }}</td>
-    <td class="n">{% if u.cost is not none %}${{ '%.2f' % u.cost }}{% else %}?{% endif %}</td></tr>
-  {% else %}<tr><td colspan="6">No Gemini calls yet.</td></tr>{% endfor %}
-  </tbody>
-</table>
+<form class="search" method="get" action="/stats">
+  <label>Papers submitted in the last <input type="number" name="days" value="{{ days }}" min="1"> days</label>
+  <button type="submit">Show</button>
+</form>
+<div class="cols">
+  <section>
+    <h2>Authors</h2>
+    <table>
+      {% for name, n in authors %}<tr><td>{{ name }}</td><td class="n">{{ n }}</td></tr>
+      {% else %}<tr><td>No papers in this period.</td></tr>{% endfor %}
+    </table>
+  </section>
+  <section>
+    <h2>Affiliations</h2>
+    <table>
+      {% for o in orgs %}<tr><td><a href="/affiliation?q={{ ('"' ~ o.name ~ '"') | urlencode }}">{{ o.name }}</a></td><td class="n">{{ o.n }}</td></tr>
+      {% else %}<tr><td>No affiliations in this period.</td></tr>{% endfor %}
+    </table>
+  </section>
 </div>
 {% endblock %}

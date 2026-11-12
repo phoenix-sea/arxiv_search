@@ -33,18 +33,7 @@ class Paper:
 
 
 @dataclass
-class Assessment:
-    id: str
-    relevance: int
-    importance: int
-    topics: list[str] = field(default_factory=list)
-    tldr: str = ""
-    reason: str = ""
-
-
-@dataclass
 class Org:
     name: str
     unit: str = ""
     domain: str = ""
-    authors: list[str] = field(default_factory=list)

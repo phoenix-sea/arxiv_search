@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import html
-import json
 import logging
 import time
-from typing import Mapping, Sequence
 
 import httpx
 
@@ -59,59 +57,12 @@ class Telegram:
                                    "link_preview_options": {"is_disabled": True}})
 
 
-def find_chat_ids(token: str, client: httpx.Client | None = None) -> list[tuple[str, str]]:
-    """Chats that recently messaged the bot: [(chat_id, description)]."""
-    data = Telegram(token, "", client=client)._call("getUpdates")
-    seen: dict[str, str] = {}
-    for u in data.get("result", []):
-        msg = u.get("message") or u.get("channel_post") or u.get("my_chat_member") or {}
-        chat = msg.get("chat") or {}
-        if "id" in chat:
-            name = chat.get("title") or " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x)
-            seen[str(chat["id"])] = f"{chat.get('type', '?')}: {name or chat.get('username', '')}"
-    return list(seen.items())
-
-
-def _topics(row: Mapping) -> list[str]:
-    try:
-        return json.loads(row["topics"] or "[]")
-    except (ValueError, TypeError):
-        return []
-
-
-def format_paper(row: Mapping, public_url: str) -> str:
-    authors = (row["authors"] or "").split("; ")
-    who = authors[0] + (" et al." if len(authors) > 1 else "") if authors and authors[0] else ""
-    pid = row["id"]
-    tags = " ".join(f"#{t.replace(' ', '_').replace('-', '_')}" for t in _topics(row))
-    lines = [
-        f"<b>{esc(row['title'])}</b>",
-        f"🎯 relevance <b>{row['relevance']}</b>/10 · ⭐ importance <b>{row['importance']}</b>/10",
-        f"{esc(row['primary_cat'])} · {esc(row['created'])} · {esc(who)}",
-    ]
-    if row["tldr"]:
-        lines.append(f"\n{esc(row['tldr'])}")
-    if row["reason"]:
-        lines.append(f"<i>{esc(row['reason'])}</i>")
-    if tags:
-        lines.append(esc(tags))
-    links = [f'<a href="https://arxiv.org/abs/{html.escape(pid)}">abs</a>',
-             f'<a href="https://arxiv.org/html/{html.escape(pid)}">html</a>',
-             f'<a href="https://arxiv.org/pdf/{html.escape(pid)}">pdf</a>']
-    if public_url:
-        links.append(f'<a href="{html.escape(public_url)}/paper/{html.escape(pid)}">details</a>')
-    lines.append("\n" + " · ".join(links))
-    return "\n".join(lines)
-
-
-def format_digest(day: str, n_new: int, n_analyzed: int, n_relevant: int, shown: Sequence[Mapping],
-                  min_relevance: int, public_url: str) -> str:
-    lines = [f"📚 <b>arXiv update {esc(day)}</b>",
-             f"{n_new} new papers · {n_analyzed} analysed by Gemini",
-             f"{n_relevant} match your interests (relevance ≥ {min_relevance})"]
-    if n_relevant > len(shown):
-        lines.append(f"Top {len(shown)} below, {n_relevant - len(shown)} more in the UI.")
-    if public_url:
-        lines.append(f'<a href="{html.escape(public_url)}/?days=7&amp;min_rel={min_relevance}&amp;sort=relevance">'
-                     f"Open new relevant papers</a>")
+def format_paper(p, orgs: list[str]) -> str:
+    """Title, authors, affiliations, date and the arXiv link."""
+    authors = ", ".join(p.authors[:5]) + (f" +{len(p.authors) - 5}" if len(p.authors) > 5 else "")
+    lines = [f"<b>{esc(p.title)}</b>", esc(authors)]
+    if orgs:
+        lines.append("🏢 " + esc("; ".join(orgs)))
+    lines.append(f"{esc(p.created)} · {esc(' '.join(p.categories))}")
+    lines.append(f'<a href="https://arxiv.org/abs/{html.escape(p.id)}">arxiv.org/abs/{esc(p.id)}</a>')
     return "\n".join(lines)

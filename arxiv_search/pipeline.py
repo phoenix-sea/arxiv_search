@@ -1,4 +1,11 @@
-"""Daily update: fetch new papers -> store -> Gemini analysis -> Telegram -> affiliations."""
+"""Daily job, in priority order:
+  1. crawl papers submitted since the newest one in the index;
+  2. parse the new papers' affiliations;
+  3. Gemini: is each new paper interesting?
+  4. Telegram message for each interesting one;
+  5. backfill affiliations of older papers (newest first) until shortly before the next run.
+All arXiv traffic is in this one process, one request at a time.
+"""
 from __future__ import annotations
 
 import datetime as dt
@@ -8,54 +15,32 @@ from typing import Callable, Iterable, Sequence
 
 from . import db
 from .affiliations import FetchError, HeaderFetcher, read_affiliations
-from .config import Settings
-from .gemini import GeminiAnalyzer, GeminiError
+from .gemini import Gemini
 from .models import Paper
-from .telegram import Telegram, TelegramError, esc, format_digest, format_paper
+from .telegram import Telegram, format_paper
 
 log = logging.getLogger(__name__)
 
 Fetcher = Callable[[Sequence[str], dt.date, dt.date], Iterable[Paper]]
+NEXT_RUN_UTC = dt.time(3, 0)  # keep in sync with deploy/systemd/arxiv-search-update.timer
+STOP_BEFORE = dt.timedelta(minutes=30)
 
 
-def make_analyzer(settings: Settings, model: str | None = None) -> GeminiAnalyzer | None:
-    if not settings.gemini_enabled:
-        return None
-    return GeminiAnalyzer(settings.gemini_api_key, model or settings.gemini_model, settings.profile,
-                          thinking_level=settings.gemini_thinking_level, rpm=settings.gemini_rpm)
+def backfill_deadline(now: dt.datetime) -> dt.datetime:
+    nxt = dt.datetime.combine(now.date(), NEXT_RUN_UTC, tzinfo=dt.timezone.utc)
+    if nxt <= now + STOP_BEFORE:
+        nxt += dt.timedelta(days=1)
+    return nxt - STOP_BEFORE
 
 
-def make_notifier(settings: Settings) -> Telegram | None:
-    return Telegram(settings.telegram_bot_token, settings.telegram_chat_id) if settings.telegram_enabled else None
-
-
-def analyze_papers(con: sqlite3.Connection, analyzer: GeminiAnalyzer, papers: Sequence[Paper],
-                   batch_size: int) -> int:
-    """Analyse and store. Stops early (keeping progress) if Gemini keeps failing,
-    so remaining papers are picked up by the next run."""
-    done = 0
-    for i in range(0, len(papers), batch_size):
-        batch = papers[i:i + batch_size]
-        try:
-            res = analyzer.analyze(batch)
-        except GeminiError as e:
-            log.error("Gemini failed (%s); %d papers left for the next run", e, len(papers) - i)
-            if done == 0:
-                raise
+def extract_affiliations(con: sqlite3.Connection, fetcher: HeaderFetcher, papers: Sequence[Paper],
+                         deadline: dt.datetime | None = None) -> int:
+    """Download each paper's author block and store its affiliations. Stops at `deadline`,
+    or if arXiv keeps failing; the rest is picked up later."""
+    done = failures = 0
+    for p in papers:
+        if deadline and dt.datetime.now(dt.timezone.utc) >= deadline:
             break
-        db.save_assessments(con, res.assessments, analyzer.model)
-        db.record_usage(con, analyzer.model, res.calls, res.input_tokens, res.output_tokens)
-        done += len(res.assessments)
-        if (i // batch_size) % 10 == 0 or i + batch_size >= len(papers):
-            log.info("analysed %d/%d", done, len(papers))
-    return done
-
-
-def extract_affiliations(con: sqlite3.Connection, fetcher: HeaderFetcher, papers: Sequence[Paper]) -> int:
-    """Download each paper's author block from arXiv and parse its organizations (rules, no LLM).
-    Returns papers processed. Stops early, keeping progress, if arXiv keeps failing."""
-    done, failures = 0, 0
-    for i, p in enumerate(papers, 1):
         try:
             got = read_affiliations(fetcher, p.id, p.authors)
             failures = 0
@@ -63,86 +48,51 @@ def extract_affiliations(con: sqlite3.Connection, fetcher: HeaderFetcher, papers
             failures += 1
             log.warning("%s (%d in a row)", e, failures)
             if failures >= 3:
-                log.error("arXiv keeps failing; %d papers left for the next run", len(papers) - i)
                 break
             continue
-        if got:
-            db.save_affiliations(con, p.id, got[1], source=got[0])
-        else:
-            db.save_affiliations(con, p.id, [], source=None, status="no_source")
+        db.save_affiliations(con, p.id, got[1] if got else [], source=got[0] if got else None,
+                             status="ok" if got else "no_source")
         done += 1
-        if i % 100 == 0:
-            log.info("affiliations: %d/%d", i, len(papers))
     return done
 
 
-def send_notifications(con: sqlite3.Connection, settings: Settings, notifier: Telegram, n_new: int,
-                       n_analyzed: int) -> int:
-    cands = db.notification_candidates(con, settings.notify_min_relevance, settings.notify_min_importance)
-    if n_new == 0 and not cands:
-        return 0
-    top = cands[:settings.notify_max_per_run]
-    day = dt.datetime.now(dt.timezone.utc).date().isoformat()
-    notifier.send(format_digest(day, n_new, n_analyzed, len(cands), top, settings.notify_min_relevance,
-                                settings.public_url))
-    sent = 0
-    for row in top:
-        notifier.send(format_paper(row, settings.public_url))
-        db.mark_notified(con, [row["id"]])
-        sent += 1
-    db.mark_notified(con, [r["id"] for r in cands])  # overflow is listed in the digest/UI
-    return sent
-
-
-def run_update(settings: Settings, con: sqlite3.Connection, *, fetcher: Fetcher,
-               analyzer: GeminiAnalyzer | None, notifier: Telegram | None,
-               affiliations: HeaderFetcher | None = None,
-               since: dt.date | None = None, until: dt.date | None = None) -> dict:
+def run_update(con: sqlite3.Connection, categories: Sequence[str], *, fetcher: Fetcher, headers: HeaderFetcher,
+               gemini: Gemini | None, telegram: Telegram | None, backfill: bool = True) -> None:
     today = dt.datetime.now(dt.timezone.utc).date()
-    end = until or today
-    if since is None:
-        mc = db.max_created(con)
-        since = (dt.date.fromisoformat(mc) if mc else today) - dt.timedelta(days=settings.lookback_days)
-    run_id = db.start_run(con, since.isoformat(), end.isoformat())
-    stats = {"fetched": 0, "new": 0, "analyzed": 0, "notified": 0}
-    log.info("update window %s .. %s, categories %s", since, end, ",".join(settings.categories))
-    try:
-        papers = list(fetcher(settings.categories, since, end))
-        stats["fetched"] = len(papers)
-        new_ids = db.upsert_papers(con, papers, added_at=db.now_iso())
-        stats["new"] = len(new_ids)
-        log.info("fetched %d papers, %d new", len(papers), len(new_ids))
+    newest = db.max_created(con)
+    since = dt.date.fromisoformat(newest) if newest else today
+    papers = list(fetcher(categories, since, today))
+    new = db.upsert_papers(con, papers, added_at=db.now_iso())
+    log.info("crawled %s..%s: %d papers, %d new", since, today, len(papers), len(new))
 
-        if analyzer:
-            pending = db.pending_analysis(con, only_added=True)
-            if pending:
-                stats["analyzed"] = analyze_papers(con, analyzer, pending, settings.gemini_batch_size)
-        else:
-            log.warning("GEMINI_API_KEY not set: skipping analysis")
+    n = extract_affiliations(con, headers, db.pending_affiliations(con, only_added=True))
+    log.info("affiliations parsed for %d new papers", n)
 
-        if notifier:
-            stats["notified"] = send_notifications(con, settings, notifier, stats["new"], stats["analyzed"])
-        else:
-            log.info("Telegram not configured: skipping notifications")
+    if gemini:
+        pending = db.unflagged_new(con)
+        flags = gemini.flag(pending)
+        db.save_flags(con, flags, gemini.model)
+        log.info("Gemini: %d of %d judged, %d interesting", len(flags), len(pending), sum(flags.values()))
+    else:
+        log.warning("GEMINI_API_KEY not set: no interest check")
 
-        # last, because it is slow (one arXiv request per paper) and must not delay notifications
-        status, error = "ok", None
-        pending = db.pending_affiliations(con, only_added=True) if affiliations else []
-        if pending:
-            log.info("parsing affiliations for %d papers (~%d min)", len(pending), len(pending) * 4 // 60)
-            try:
-                extract_affiliations(con, affiliations, pending)
-            except Exception as e:  # papers and notifications are done; the rest is retried next run
-                log.exception("affiliation parsing failed")
-                status, error = "partial", f"affiliations: {type(e).__name__}: {e}"[:1000]
-        db.finish_run(con, run_id, status=status, error=error, **stats)
-        log.info("update done: %s", stats)
-        return stats
-    except Exception as e:
-        db.finish_run(con, run_id, status="error", error=f"{type(e).__name__}: {e}"[:1000], **stats)
-        if notifier:
-            try:
-                notifier.send(f"⚠️ <b>arXiv update failed</b>\n<code>{esc(f'{type(e).__name__}: {e}'[:500])}</code>")
-            except TelegramError:
-                log.exception("could not send failure notice")
-        raise
+    if telegram:
+        for p in db.to_notify(con):
+            telegram.send(format_paper(p, db.orgs_for(con, [p.id]).get(p.id, [])))
+            db.mark_notified(con, p.id)
+    else:
+        log.warning("Telegram not configured: no messages")
+
+    if backfill:
+        deadline = backfill_deadline(dt.datetime.now(dt.timezone.utc))
+        log.info("backfilling affiliations until %s", deadline.isoformat(timespec="minutes"))
+        total = 0
+        while dt.datetime.now(dt.timezone.utc) < deadline:
+            batch = db.pending_affiliations(con, only_added=False, limit=200)
+            if not batch:
+                break
+            done = extract_affiliations(con, headers, batch, deadline)
+            total += done
+            if done == 0:
+                break
+        log.info("backfilled %d papers", total)
