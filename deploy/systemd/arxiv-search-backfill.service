@@ -1,0 +1,14 @@
+[Unit]
+Description=arXiv search one-off Gemini backfill of already-indexed papers (start manually)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@APP_DIR@
+# Edit the scope/model before starting. Costs money: see README "Backfill".
+ExecStart=@APP_DIR@/.venv/bin/arxiv-search analyze --since 2025-01-01 --yes
+TimeoutStartSec=infinity
+Nice=15
+IOSchedulingClass=idle

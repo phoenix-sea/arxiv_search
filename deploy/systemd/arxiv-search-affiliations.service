@@ -1,0 +1,15 @@
+[Unit]
+Description=arXiv search one-off affiliation backfill of already-indexed papers (start manually)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@APP_DIR@
+# Free (rules, no Gemini) but slow: one arXiv download per ~3.5 s, ~900 papers/hour.
+# Edit --since before starting; it resumes where it stopped.
+ExecStart=@APP_DIR@/.venv/bin/arxiv-search affiliations --since 2026-01-01 --yes
+TimeoutStartSec=infinity
+Nice=15
+IOSchedulingClass=idle

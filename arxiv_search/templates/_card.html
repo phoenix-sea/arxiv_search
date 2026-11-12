@@ -1,0 +1,38 @@
+<article class="card">
+  <div class="card-head">
+    <a class="title" href="/paper/{{ r.id }}">{{ r.title }}</a>
+    {% if r.relevance is not none %}
+    <span class="scores">
+      <span class="score rel s{{ r.relevance }}" title="Gemini relevance to your profile">🎯 {{ r.relevance }}</span>
+      <span class="score imp s{{ r.importance }}" title="Gemini importance estimate">⭐ {{ r.importance }}</span>
+    </span>
+    {% endif %}
+  </div>
+  <div class="meta">
+    <span>{{ r.created }}</span> ·
+    <span class="cats">{{ r.categories }}</span> ·
+    {% set au = r.authors | authors %}
+    <span class="au">{% for a in au[:3] %}<a href="/?author={{ a | urlencode }}">{{ a }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% if au|length > 3 %} +{{ au|length - 3 }}{% endif %}</span>
+    {% if r.added_at %}<span class="badge">new</span>{% endif %}
+  </div>
+  {% set po = orgs.get(r.id, []) %}
+  {% if po %}
+  <div class="orgs">{% for o in po[:4] %}<a class="org k-{{ o.kind }}" href="/?org={{ o.name | urlencode }}" title="{{ o.unit or o.name }}{% if o.domain %} · {{ o.domain }}{% endif %}">{{ o.name }}</a>{% endfor %}{% if po|length > 4 %}<span class="muted">+{{ po|length - 4 }}</span>{% endif %}</div>
+  {% endif %}
+  {% if r.tldr %}
+  <p class="tldr">{{ r.tldr }}</p>
+  {% endif %}
+  {% if r.snip %}
+  <p class="snip">{{ r.snip | hl }}</p>
+  {% elif not r.tldr %}
+  <p class="snip">{{ (r.abstract or '')[:320] }}{% if (r.abstract or '')|length > 320 %}…{% endif %}</p>
+  {% endif %}
+  <div class="foot">
+    {% for t in r.topics | topics %}<a class="tag" href="/?q=%22{{ t | urlencode }}%22">{{ t }}</a>{% endfor %}
+    <span class="links">
+      <a href="https://arxiv.org/abs/{{ r.id }}" target="_blank" rel="noopener">abs</a>
+      <a href="https://arxiv.org/html/{{ r.id }}" target="_blank" rel="noopener">html</a>
+      <a href="https://arxiv.org/pdf/{{ r.id }}" target="_blank" rel="noopener">pdf</a>
+    </span>
+  </div>
+</article>

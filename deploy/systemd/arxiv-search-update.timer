@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the arXiv search update daily
+
+[Timer]
+# arXiv announces new papers Sun-Thu at 20:00 US Eastern (00:00/01:00 UTC).
+OnCalendar=*-*-* 03:00:00 UTC
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

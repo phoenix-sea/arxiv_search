@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ r.title }}{% endblock %}
+{% block content %}
+<article class="detail">
+  <h1>{{ r.title }}</h1>
+  <p class="meta">{{ r.id }} · submitted {{ r.created }}{% if r.updated %} · updated {{ r.updated }}{% endif %} · <span class="cats">{{ r.categories }}</span></p>
+  <p class="authors">{% for a in r.authors | authors %}<a href="/?author={{ a | urlencode }}">{{ a }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+
+  {% if orgs %}
+  <section class="affil">
+    <h2>Affiliations</h2>
+    <ul>
+    {% for o in orgs %}
+      <li><a class="org k-{{ o.kind }}" href="/?org={{ o.name | urlencode }}">{{ o.name }}</a>
+        {% if o.unit %}<span>{{ o.unit }}</span>{% endif %}
+        <span class="muted">{{ o.kind }}{% if o.domain %} · <a href="/?org={{ o.domain | urlencode }}">{{ o.domain }}</a>{% endif %}</span>
+        {% if o.authors %}<div class="muted">{% for a in o.authors | authors %}<a href="/?author={{ a | urlencode }}">{{ a }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+      </li>
+    {% endfor %}
+    </ul>
+    <p class="muted">Parsed from the paper's {{ (affil.source or '').upper() }} author block ({{ affil.model }}) · {{ affil.extracted_at }}</p>
+  </section>
+  {% elif affil and affil.status == 'ok' %}
+  <p class="notice">No affiliations stated in the paper's author block.</p>
+  {% elif affil and affil.status == 'no_source' %}
+  <p class="notice">No HTML or PDF author block was available for affiliations.</p>
+  {% else %}
+  <p class="notice">Affiliations not extracted yet (<code>arxiv-search affiliations</code> backfills older papers).</p>
+  {% endif %}
+
+  {% if r.relevance is not none %}
+  <section class="analysis">
+    <div class="scores big">
+      <span class="score rel s{{ r.relevance }}">🎯 Relevance {{ r.relevance }}/10</span>
+      <span class="score imp s{{ r.importance }}">⭐ Importance {{ r.importance }}/10</span>
+    </div>
+    {% if r.tldr %}<p class="tldr">{{ r.tldr }}</p>{% endif %}
+    {% if r.reason %}<p class="reason">{{ r.reason }}</p>{% endif %}
+    <p>{% for t in r.topics | topics %}<a class="tag" href="/?q=%22{{ t | urlencode }}%22">{{ t }}</a>{% endfor %}</p>
+    <p class="muted">Gemini {{ r.model }} · {{ r.analyzed_at }}</p>
+  </section>
+  {% else %}
+  <p class="notice">Not analysed by Gemini yet (<code>arxiv-search analyze</code> backfills older papers).</p>
+  {% endif %}
+
+  <h2>Abstract</h2>
+  <p class="abstract">{{ r.abstract }}</p>
+
+  <dl class="facts">
+    {% if r.comments %}<dt>Comments</dt><dd>{{ r.comments }}</dd>{% endif %}
+    {% if r.journal_ref %}<dt>Journal</dt><dd>{{ r.journal_ref }}</dd>{% endif %}
+    {% if r.doi %}<dt>DOI</dt><dd><a href="https://doi.org/{{ r.doi }}">{{ r.doi }}</a></dd>{% endif %}
+    {% if r.license %}<dt>Licence</dt><dd>{% if r.license.startswith('http') %}<a href="{{ r.license }}">{{ r.license }}</a>{% else %}{{ r.license }}{% endif %}</dd>{% endif %}
+  </dl>
+
+  <p class="links big">
+    <a href="https://arxiv.org/abs/{{ r.id }}" target="_blank" rel="noopener">arXiv page</a>
+    <a href="https://arxiv.org/html/{{ r.id }}" target="_blank" rel="noopener">HTML</a>
+    <a href="https://arxiv.org/pdf/{{ r.id }}" target="_blank" rel="noopener">PDF</a>
+  </p>
+</article>
+{% endblock %}

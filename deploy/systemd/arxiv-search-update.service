@@ -1,0 +1,15 @@
+[Unit]
+Description=arXiv search daily update (fetch new papers, Gemini analysis, Telegram, affiliations)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@APP_DIR@
+ExecStart=@APP_DIR@/.venv/bin/arxiv-search update
+# A normal day takes under an hour; the first run after copying the index also catches up
+# affiliations for the papers since the snapshot (~3.5 s each), which can take several hours.
+TimeoutStartSec=12h
+Nice=10
+IOSchedulingClass=idle
